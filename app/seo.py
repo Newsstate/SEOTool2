@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
 
+
 # ----------------------------
 # Helpers
 # ----------------------------
@@ -23,17 +24,21 @@ def fetch_static_html(url: str) -> str:
         return f"<error>{e}</error>"
 
 
+from playwright.async_api import async_playwright
+
 async def fetch_rendered_html(url: str) -> str:
+    """Fetch fully rendered HTML using Playwright (Chromium headless)."""
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(args=["--no-sandbox"])
+            browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
-            await page.goto(url, timeout=20000)
+            await page.goto(url, wait_until="networkidle")
             content = await page.content()
             await browser.close()
             return content
     except Exception as e:
-        return f"<error>{e}</error>"
+        return f"Error rendering page: {str(e)}"
+
 
 
 # ----------------------------
