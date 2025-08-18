@@ -223,7 +223,7 @@ async def analyze_form(request: Request, url: str = Form(...)):
     """
     try:
         result = await analyze_url(url, do_rendered_check=True)
-
+    results["rendered_html"] = await fetch_rendered_html(url)
         # Persist to DB (safe defaults)
         save_analysis(
             url=url,
