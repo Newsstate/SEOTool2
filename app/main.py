@@ -3,18 +3,21 @@ import sys
 import asyncio
 from time import time
 from typing import Dict, Tuple, Any
-
+from fastapi import FastAPI, Request, Form
+from fastapi.responses import JSONResponse
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, HttpUrl
 from pathlib import Path
 from app.seo import fetch_rendered_html
+from app.seo import analyze_url, fetch_rendered_html
 
 
 from .seo import analyze as analyze_url
 from .db import init_db, save_analysis
 
+app = FastAPI()
 # --- Windows asyncio policy fix (safe no-op elsewhere) ---
 if sys.platform.startswith("win"):
     try:
@@ -263,7 +266,8 @@ async def api_analyze(url: HttpUrl):
     """
     try:
         result = await analyze_url(str(url), do_rendered_check=True)
-
+     # Also fetch rendered HTML (JS-executed content)
+        results["rendered_html"] = await fetch_rendered_html(url)
         save_analysis(
             url=str(url),
             result=result,
