@@ -8,6 +8,10 @@ ENV PYTHONUNBUFFERED=1
 # Set workdir
 WORKDIR /app
 
+#rendered vs static comparision
+RUN pip install playwright
+RUN playwright install --with-deps chromium
+
 # System deps (curl for healthcheck, build tools for lxml)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \ 
