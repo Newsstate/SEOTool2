@@ -3,21 +3,21 @@ import sys
 import asyncio
 from time import time
 from typing import Dict, Tuple, Any
-from fastapi import FastAPI, Request, Form
-from fastapi.responses import JSONResponse
+from pathlib import Path
+import os
+import requests   # ✅ needed for /compare_rendered_static
+
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, HttpUrl
-from pathlib import Path
-from app.seo import fetch_rendered_html
-from app.seo import analyze_url, fetch_rendered_html
 
-
-from .seo import analyze as analyze_url
+from .seo import analyze as analyze_url, fetch_rendered_html
 from .db import init_db, save_analysis
 
-app = FastAPI()
+
+app = FastAPI(title="SEO Analyzer")
+
 # --- Windows asyncio policy fix (safe no-op elsewhere) ---
 if sys.platform.startswith("win"):
     try:
@@ -25,15 +25,11 @@ if sys.platform.startswith("win"):
     except Exception:
         pass
 
-app = FastAPI(title="SEO Analyzer")
-templates = Jinja2Templates(directory="templates")
-
 # Resolve templates dir relative to this file: app/templates
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 
 # Optional: allow override via env var if you ever need it
-import os
 env_templates = os.getenv("TEMPLATES_DIR")
 if env_templates:
     candidate = Path(env_templates).resolve()
@@ -42,13 +38,14 @@ if env_templates:
 
 # Create the Jinja environment
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
 # ------------------------------------------------------------------------------
 # AMP vs Non-AMP comparison: cache + helpers
 # ------------------------------------------------------------------------------
 
-# key=url, value=(timestamp, payload_dict)
 COMPARE_CACHE: Dict[str, Tuple[float, dict]] = {}
 COMPARE_TTL = 15 * 60  # 15 minutes
+
 
 def _val(d: Any, *path: str, default=None):
     cur = d
@@ -61,14 +58,12 @@ def _val(d: Any, *path: str, default=None):
             return default
     return cur if cur not in (None, "") else default
 
+
 def _yesno(b: Any) -> str:
     return "Yes" if bool(b) else "No"
 
+
 async def build_amp_compare_payload(url: str, request: Request | None):
-    """
-    Returns dict suitable for amp_compare.html:
-    { request, url, amp_url, rows, error }
-    """
     base = await analyze_url(url, do_rendered_check=False)
     amp_url = base.get("amp_url")
     if not amp_url:
@@ -180,8 +175,10 @@ async def build_amp_compare_payload(url: str, request: Request | None):
         "error": None,
     }
 
+
 def _cache_put(url: str, payload: dict):
     COMPARE_CACHE[url] = (time(), payload)
+
 
 def _cache_get(url: str) -> dict | None:
     hit = COMPARE_CACHE.get(url)
@@ -192,14 +189,14 @@ def _cache_get(url: str) -> dict | None:
         return None
     return payload
 
+
 async def _warm_compare_async(url: str):
-    """Fire-and-forget pre-scan to warm the compare cache."""
     try:
         payload = await build_amp_compare_payload(url, request=None)
         _cache_put(url, payload)
     except Exception:
-        # Best effort; don't crash the request path
         pass
+
 
 # ------------------------------------------------------------------------------
 # Startup
@@ -209,71 +206,26 @@ async def _warm_compare_async(url: str):
 async def on_startup():
     init_db()
 
+
 # ------------------------------------------------------------------------------
 # Pages
 # ------------------------------------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    # Render the main page (index.html). You can display an initial empty state.
     return templates.TemplateResponse("index.html", {"request": request})
 
-@app.post("/analyze", response_class=HTMLResponse)
-async def analyze_form(request: Request, url: str = Form(...)):
-    """
-    Handles the form submit from the homepage, renders the results page.
-    Kicks off a background pre-scan for AMP vs Non-AMP if an AMP URL exists.
-    """
-    try:
-        result = await analyze_url(url, do_rendered_check=True)
-    results["rendered_html"] = await fetch_rendered_html(url)
-        # Persist to DB (safe defaults)
-        save_analysis(
-            url=url,
-            result=result,
-            status_code=int(result.get("status_code") or 0),
-            load_time_ms=int(result.get("load_time_ms") or 0),
-            content_length=int(result.get("content_length") or 0),
-            is_amp=bool(result.get("is_amp")),
-        )
-
-        # Pre-warm compare cache so the button feels instant
-        if result.get("amp_url"):
-            asyncio.create_task(_warm_compare_async(result["url"]))
-
-        # Optional: add prefetch hints from the template (head block)
-        # See your template addition for:
-        # <link rel="prefetch" href="{{ result.url }}">, etc.
-
-        return templates.TemplateResponse(
-            "index.html",
-            {"request": request, "result": result},
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# ------------------------------------------------------------------------------
-# API
-# ------------------------------------------------------------------------------
-
-class AnalyzeQuery(BaseModel):
-    url: HttpUrl
 
 @app.post("/analyze", response_class=HTMLResponse)
 async def analyze_form(request: Request, url: str = Form(...)):
-    """
-    Handles the form submit from the homepage, renders the results page.
-    Kicks off a background pre-scan for AMP vs Non-AMP if an AMP URL exists.
-    """
     try:
-        # Run SEO + Rendered checks
         result = await analyze_url(url, do_rendered_check=True)
 
-        # Add rendered HTML separately
+        # Add rendered HTML
         rendered_html = await fetch_rendered_html(url)
         result["rendered_html"] = rendered_html
 
-        # Persist to DB
+        # Persist
         save_analysis(
             url=url,
             result=result,
@@ -283,14 +235,10 @@ async def analyze_form(request: Request, url: str = Form(...)):
             is_amp=bool(result.get("is_amp")),
         )
 
-        # Pre-warm compare cache so the button feels instant
         if result.get("amp_url"):
             asyncio.create_task(_warm_compare_async(result["url"]))
 
-        return templates.TemplateResponse(
-            "index.html",
-            {"request": request, "result": result},
-        )
+        return templates.TemplateResponse("index.html", {"request": request, "result": result})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -300,25 +248,20 @@ async def compare_rendered_static(url: str):
     static_html = requests.get(url).text
     rendered_html = await fetch_rendered_html(url)
     return {"static": static_html, "rendered": rendered_html}
+
+
 # ------------------------------------------------------------------------------
 # AMP vs Non-AMP comparison page
 # ------------------------------------------------------------------------------
 
 @app.get("/amp-compare", response_class=HTMLResponse)
 async def amp_compare(request: Request, url: str):
-    """
-    Example: /amp-compare?url=https://example.com/article
-    Renders a table comparing key SEO signals between Non-AMP and AMP.
-    Uses a warm cache for instant load when possible.
-    """
-    # 1) Try cache
     cached = _cache_get(url)
     if cached:
-        payload = dict(cached)  # shallow copy
+        payload = dict(cached)
         payload["request"] = request
         return templates.TemplateResponse("amp_compare.html", payload)
 
-    # 2) Compute fresh and cache
     payload = await build_amp_compare_payload(url, request)
-    _cache_put(url, dict(payload, request=None))  # store without Request object
+    _cache_put(url, dict(payload, request=None))
     return templates.TemplateResponse("amp_compare.html", payload)
