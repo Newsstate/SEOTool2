@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, HttpUrl
 
-from .seo import analyze as analyze_url, fetch_rendered_html
+from .seo import analyze_url, fetch_rendered_html
 from .db import init_db, save_analysis
 
 
