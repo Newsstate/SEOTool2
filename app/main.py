@@ -1,9 +1,15 @@
+# app/main.py
 from __future__ import annotations
 import sys
 import asyncio
 from time import time
 from typing import Dict, Tuple, Any
 
+import os, asyncio
+from typing import Dict
+
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -178,6 +184,7 @@ async def build_amp_compare_payload(url: str, request: Request | None):
 def _cache_put(url: str, payload: dict):
     COMPARE_CACHE[url] = (time(), payload)
 
+from seo import analyze_url  # import your analyzer function
 def _cache_get(url: str) -> dict | None:
     hit = COMPARE_CACHE.get(url)
     if not hit:
@@ -187,6 +194,9 @@ def _cache_get(url: str) -> dict | None:
         return None
     return payload
 
+# === CONFIG ===
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 async def _warm_compare_async(url: str):
     """Fire-and-forget pre-scan to warm the compare cache."""
     try:
@@ -200,6 +210,8 @@ async def _warm_compare_async(url: str):
 # Startup
 # ------------------------------------------------------------------------------
 
+# FastAPI app
+app = FastAPI(title="SEO & Performance Analyzer", version="1.0.0")
 @app.on_event("startup")
 async def on_startup():
     init_db()
@@ -208,6 +220,7 @@ async def on_startup():
 # Pages
 # ------------------------------------------------------------------------------
 
+# Home route - render index.html
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     # Render the main page (index.html). You can display an initial empty state.
@@ -254,12 +267,20 @@ async def analyze_form(request: Request, url: str = Form(...)):
 class AnalyzeQuery(BaseModel):
     url: HttpUrl
 
+# API route - run SEO analysis
+@app.get("/analyze")
+async def analyze(url: str) -> Dict:
 @app.get("/api/analyze", response_class=JSONResponse)
 async def api_analyze(url: HttpUrl):
     """
+    Example:
+        /analyze?url=https://example.com
+    Returns all SEO & performance scan results as JSON.
     JSON API variant. Also pre-warms compare cache when AMP is present.
     """
     try:
+        result = await analyze_url(url)
+        return JSONResponse(content=result)
         result = await analyze_url(str(url), do_rendered_check=True)
 
         save_analysis(
@@ -276,6 +297,7 @@ async def api_analyze(url: HttpUrl):
 
         return JSONResponse(result)
     except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
         return JSONResponse({"error": str(e)}, status_code=500)
 
 # ------------------------------------------------------------------------------
@@ -296,6 +318,10 @@ async def amp_compare(request: Request, url: str):
         payload["request"] = request
         return templates.TemplateResponse("amp_compare.html", payload)
 
+# Health check
+@app.get("/ping")
+async def ping():
+    return {"status": "ok", "message": "SEO Analyzer running"}
     # 2) Compute fresh and cache
     payload = await build_amp_compare_payload(url, request)
     _cache_put(url, dict(payload, request=None))  # store without Request object
