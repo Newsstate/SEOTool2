@@ -9,6 +9,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, HttpUrl
 from pathlib import Path
+from app.seo import fetch_rendered_html
+
 
 from .seo import analyze as analyze_url
 from .db import init_db, save_analysis
@@ -278,6 +280,12 @@ async def api_analyze(url: HttpUrl):
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
+
+@app.get("/compare_rendered_static")
+async def compare_rendered_static(url: str):
+    static_html = requests.get(url).text
+    rendered_html = await fetch_rendered_html(url)
+    return {"static": static_html, "rendered": rendered_html}
 # ------------------------------------------------------------------------------
 # AMP vs Non-AMP comparison page
 # ------------------------------------------------------------------------------
