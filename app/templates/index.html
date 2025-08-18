@@ -2,100 +2,116 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SEO & Performance Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-100 text-gray-900">
-  <div class="container mx-auto p-6">
-    <h1 class="text-3xl font-bold mb-6 text-center">SEO & Performance Dashboard</h1>
+<body class="bg-gray-100 text-gray-800">
 
-    <!-- Input Form -->
-    <form id="seo-form" class="flex gap-2 mb-8 justify-center">
-      <input type="url" id="url" placeholder="Enter website URL"
-        class="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        required>
-      <button type="submit"
-        class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">Scan</button>
-    </form>
+  <!-- Header -->
+  <header class="bg-indigo-600 text-white p-4 shadow-md">
+    <h1 class="text-2xl font-bold text-center">SEO & Performance Dashboard</h1>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-6xl mx-auto p-6 space-y-6">
+
+    <!-- URL Form -->
+    <section class="bg-white p-6 rounded-2xl shadow-md">
+      <form id="seoForm" class="flex space-x-4">
+        <input 
+          type="url" 
+          id="urlInput" 
+          placeholder="Enter website URL" 
+          class="flex-1 p-3 border rounded-lg focus:outline-none focus:ring focus:ring-indigo-300" 
+          required>
+        <button 
+          type="submit" 
+          class="bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700">
+          Analyze
+        </button>
+      </form>
+    </section>
 
     <!-- Results -->
-    <div id="results" class="space-y-8 hidden">
+    <section id="results" class="space-y-6 hidden">
 
       <!-- Page Overview -->
-      <section class="bg-white p-6 rounded-2xl shadow">
-        <h2 class="text-xl font-semibold mb-4">Page Overview</h2>
-        <div id="page-overview" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-      </section>
+      <div class="bg-white p-6 rounded-2xl shadow-md">
+        <h2 class="text-xl font-bold mb-4 text-indigo-600">Page Overview</h2>
+        <div id="pageOverview" class="grid grid-cols-2 gap-4 text-sm"></div>
+      </div>
 
       <!-- SEO Meta -->
-      <section class="bg-white p-6 rounded-2xl shadow">
-        <h2 class="text-xl font-semibold mb-4">SEO Meta</h2>
-        <div id="seo-meta" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-      </section>
+      <div class="bg-white p-6 rounded-2xl shadow-md">
+        <h2 class="text-xl font-bold mb-4 text-indigo-600">SEO Meta</h2>
+        <div id="seoMeta" class="grid grid-cols-2 gap-4 text-sm"></div>
+      </div>
 
       <!-- Content Structure -->
-      <section class="bg-white p-6 rounded-2xl shadow">
-        <h2 class="text-xl font-semibold mb-4">Content Structure</h2>
-        <div id="content-structure" class="space-y-2"></div>
-      </section>
+      <div class="bg-white p-6 rounded-2xl shadow-md">
+        <h2 class="text-xl font-bold mb-4 text-indigo-600">Content Structure</h2>
+        <div id="contentStructure" class="grid grid-cols-2 gap-4 text-sm"></div>
+      </div>
 
       <!-- Links -->
-      <section class="bg-white p-6 rounded-2xl shadow">
-        <h2 class="text-xl font-semibold mb-4">Links</h2>
-        <div id="links" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-      </section>
+      <div class="bg-white p-6 rounded-2xl shadow-md">
+        <h2 class="text-xl font-bold mb-4 text-indigo-600">Links</h2>
+        <div id="links" class="grid grid-cols-2 gap-4 text-sm"></div>
+      </div>
 
       <!-- Performance -->
-      <section class="bg-white p-6 rounded-2xl shadow">
-        <h2 class="text-xl font-semibold mb-4">Performance</h2>
-        <div id="performance" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-      </section>
+      <div class="bg-white p-6 rounded-2xl shadow-md">
+        <h2 class="text-xl font-bold mb-4 text-indigo-600">Performance</h2>
+        <div id="performance" class="grid grid-cols-2 gap-4 text-sm"></div>
+      </div>
+
+      <!-- Rendered vs Static Comparison -->
+      <div class="bg-white p-6 rounded-2xl shadow-md">
+        <h2 class="text-xl font-bold mb-4 text-indigo-600">Rendered vs Static Comparison</h2>
+        <div id="renderComparison" class="grid grid-cols-2 gap-4 text-sm"></div>
+      </div>
 
       <!-- Security -->
-      <section class="bg-white p-6 rounded-2xl shadow">
-        <h2 class="text-xl font-semibold mb-4">Security</h2>
-        <div id="security" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-      </section>
+      <div class="bg-white p-6 rounded-2xl shadow-md">
+        <h2 class="text-xl font-bold mb-4 text-indigo-600">Security</h2>
+        <div id="security" class="grid grid-cols-2 gap-4 text-sm"></div>
+      </div>
 
-      <!-- Technical SEO -->
-      <section class="bg-white p-6 rounded-2xl shadow">
-        <h2 class="text-xl font-semibold mb-4">Technical SEO</h2>
-        <div id="technical-seo" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-      </section>
-    </div>
-  </div>
+    </section>
+
+  </main>
 
   <script>
-    document.getElementById("seo-form").addEventListener("submit", async function (e) {
+    document.getElementById("seoForm").addEventListener("submit", async function(e) {
       e.preventDefault();
-      const url = document.getElementById("url").value;
+      const url = document.getElementById("urlInput").value;
+
       const res = await fetch(`/analyze?url=${encodeURIComponent(url)}`);
       const data = await res.json();
 
       document.getElementById("results").classList.remove("hidden");
 
-      // Helper to render key-value pairs
-      const renderData = (id, obj) => {
-        const container = document.getElementById(id);
-        container.innerHTML = "";
-        if (!obj) return;
-        Object.entries(obj).forEach(([k, v]) => {
-          container.innerHTML += `
-            <div class="border-b pb-2">
-              <strong>${k}:</strong> ${typeof v === "object" ? JSON.stringify(v) : v}
-            </div>`;
-        });
-      };
-
-      renderData("page-overview", data.page_overview);
-      renderData("seo-meta", data.seo_meta);
-      renderData("content-structure", data.content_structure);
-      renderData("links", data.links);
-      renderData("performance", data.performance);
-      renderData("security", data.security);
-      renderData("technical-seo", data.technical_seo);
+      // Populate sections
+      populateSection("pageOverview", data.page_overview);
+      populateSection("seoMeta", data.seo_meta);
+      populateSection("contentStructure", data.content_structure);
+      populateSection("links", data.links);
+      populateSection("performance", data.performance);
+      populateSection("renderComparison", data.render_comparison);
+      populateSection("security", data.security);
     });
+
+    function populateSection(sectionId, sectionData) {
+      const container = document.getElementById(sectionId);
+      container.innerHTML = "";
+      for (const [key, value] of Object.entries(sectionData || {})) {
+        const div = document.createElement("div");
+        div.className = "p-2 border rounded bg-gray-50";
+        div.innerHTML = `<strong>${key}:</strong> ${value}`;
+        container.appendChild(div);
+      }
+    }
   </script>
 </body>
 </html>
