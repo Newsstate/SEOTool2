@@ -259,17 +259,23 @@ async def analyze_form(request: Request, url: str = Form(...)):
 class AnalyzeQuery(BaseModel):
     url: HttpUrl
 
-@app.get("/api/analyze", response_class=JSONResponse)
-async def api_analyze(url: HttpUrl):
+@app.post("/analyze", response_class=HTMLResponse)
+async def analyze_form(request: Request, url: str = Form(...)):
     """
-    JSON API variant. Also pre-warms compare cache when AMP is present.
+    Handles the form submit from the homepage, renders the results page.
+    Kicks off a background pre-scan for AMP vs Non-AMP if an AMP URL exists.
     """
     try:
-        result = await analyze_url(str(url), do_rendered_check=True)
-     # Also fetch rendered HTML (JS-executed content)
-        results["rendered_html"] = await fetch_rendered_html(url)
+        # Run SEO + Rendered checks
+        result = await analyze_url(url, do_rendered_check=True)
+
+        # Add rendered HTML separately
+        rendered_html = await fetch_rendered_html(url)
+        result["rendered_html"] = rendered_html
+
+        # Persist to DB
         save_analysis(
-            url=str(url),
+            url=url,
             result=result,
             status_code=int(result.get("status_code") or 0),
             load_time_ms=int(result.get("load_time_ms") or 0),
@@ -277,12 +283,16 @@ async def api_analyze(url: HttpUrl):
             is_amp=bool(result.get("is_amp")),
         )
 
+        # Pre-warm compare cache so the button feels instant
         if result.get("amp_url"):
             asyncio.create_task(_warm_compare_async(result["url"]))
 
-        return JSONResponse(result)
+        return templates.TemplateResponse(
+            "index.html",
+            {"request": request, "result": result},
+        )
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/compare_rendered_static")
