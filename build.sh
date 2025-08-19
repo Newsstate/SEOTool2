@@ -1,4 +1,12 @@
-buildCommand: |
-  pip install -r requirements.txt && \
-  python -m playwright install chromium
-startCommand: gunicorn -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Install Python deps
+pip install -r requirements.txt
+
+# Install Playwright & Chromium browser (no --with-deps on Render Python runtime)
+pip install playwright
+python -m playwright install chromium
+
+# (Optional) Show versions to the build log
+python -c "import sys; import playwright; print('Python', sys.version); print('Playwright', playwright.__version__)"
