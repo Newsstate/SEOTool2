@@ -15,7 +15,7 @@
           placeholder="Enter URL (https://…)"
           required
           class="flex-1 border rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          value="{{ request.query_params['url'] if request and request.query_params and 'url' in request.query_params else '' }}"
+          value="{{ (request.query_params.get('url') if request and request.query_params else '') or (result.url if (result is defined and result) else '') }}"
         >
         <button id="analyzeBtn" type="submit" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md">
           <span id="analyzeBtnText">Analyze</span>
@@ -98,7 +98,7 @@
     </div>
   </div>
 
-  {% if result and result.amp_url %}
+  {% if (result is defined and result) and result.amp_url %}
     <a href="{{ request.url_for('amp_compare') }}?url={{ result.url | urlencode }}"
        target="_blank" rel="noopener"
        class="px-3 py-2 rounded-xl border border-slate-300 hover:bg-slate-100">
@@ -107,131 +107,142 @@
   {% endif %}
 
   {# === Section Completion Progress (sticky top bar) === #}
-<div class="sticky top-0 z-40 bg-white/80 backdrop-blur border-b">
-  <div class="max-w-7xl mx-auto px-6 py-3">
-    <div class="flex items-center justify-between gap-3">
-      <div class="text-sm text-slate-600">
-        Scan progress: <span class="font-semibold" id="pct">0%</span>
+  <div class="sticky top-0 z-40 bg-white/80 backdrop-blur border-b">
+    <div class="max-w-7xl mx-auto px-6 py-3">
+      <div class="flex items-center justify-between gap-3">
+        <div class="text-sm text-slate-600">
+          Scan progress: <span class="font-semibold" id="pct">0%</span>
+        </div>
+        <div id="engine" class="text-xs text-slate-500 hidden"></div>
       </div>
-      <div id="engine" class="text-xs text-slate-500 hidden"></div>
-    </div>
 
-    <div class="mt-2 h-2 rounded-full bg-slate-200 overflow-hidden">
-      <div id="fill" class="h-full bg-blue-600 transition-all duration-700" style="width:0%;"></div>
-    </div>
+      <div class="mt-2 h-2 rounded-full bg-slate-200 overflow-hidden">
+        <div id="fill" class="h-full bg-blue-600 transition-all duration-700" style="width:0%;"></div>
+      </div>
 
-    <div id="chips" class="mt-2 flex flex-wrap gap-2"></div>
+      <div id="chips" class="mt-2 flex flex-wrap gap-2"></div>
+    </div>
   </div>
-</div>
 
-<script>
-/* 1) Real completion (results page) via Jinja -> JS (all guarded) */
-window.__HAS_RESULT__ = {{ 'true' if (result is defined and result) else 'false' }};
+  <!-- Auto-progress script: lights chips during submit, shows real state on results -->
+  <script>
+  /**
+   * Auto-progress for section chips during submit,
+   * and real completion once results are rendered.
+   */
 
-window.__RENDER_ENGINE__ = {% if (result is defined and result and result.rendered_diff and result.rendered_diff.engine) %}
-  "{{ result.rendered_diff.engine }}"
-{% else %} null {% endif %};
+  // 1) Real completion (results page) via Jinja -> JS (all guarded)
+  window.__HAS_RESULT__ = {{ 'true' if (result is defined and result) else 'false' }};
 
-window.__SECTION_DONE__ = {
-  "Overview": {{ 'true' if (result is defined and result) else 'false' }},
-  "SEO Meta": {{ 'true' if (result is defined and result and (result.title or result.description or result.canonical)) else 'false' }},
-  "Content": {{
-    'true' if (result is defined and result and (
-      (result.headings and (
-        (result.headings.h1|default([]))|length > 0 or
-        (result.headings.h2|default([]))|length > 0
-      )) or
-      (result.h1|default([])|length > 0) or
-      (result.h2|default([])|length > 0) or
-      (result.keyword_density_top|default([])|length > 0)
-    )) else 'false'
-  }},
-  "Links": {{ 'true' if (result is defined and result and (
-              (result.internal_links and result.internal_links|length) or
-              (result.external_links and result.external_links|length)
-            )) else 'false' }},
-  "Media": {{ 'true' if (result is defined and result and (result.images_missing_alt is not none)) else 'false' }},
-  "Structured": {{ 'true' if (result is defined and result and (
-                    (result.json_ld|default([])|length) or
-                    (result.microdata|default([])|length) or
-                    (result.rdfa|default([])|length)
-                  )) else 'false' }},
-  "Indexing": {{ 'true' if (result is defined and result and (result.crawl_checks or result.checks)) else 'false' }},
-  "Performance": {{ 'true' if (result is defined and result and result.performance) else 'false' }},
-  "Rendered": {{ 'true' if (result is defined and result and result.rendered_diff and (
-                 (result.rendered_diff.matrix|default([])|length > 0) or
-                 (result.rendered_diff.rendered)
-               )) else 'false' }},
-};
+  window.__RENDER_ENGINE__ = {% if (result is defined and result and result.rendered_diff and result.rendered_diff.engine) %}
+    "{{ result.rendered_diff.engine }}"
+  {% else %} null {% endif %};
 
-/* 2) UI helpers (unchanged) */
-const SECTIONS = ["Overview","SEO Meta","Content","Links","Media","Structured","Indexing","Performance","Rendered"];
-const chipsEl  = document.getElementById('chips');
-const pctEl    = document.getElementById('pct');
-const fillEl   = document.getElementById('fill');
-const engineEl = document.getElementById('engine');
+  window.__SECTION_DONE__ = {
+    "Overview": {{ 'true' if (result is defined and result) else 'false' }},
+    "SEO Meta": {{ 'true' if (result is defined and result and (result.title or result.description or result.canonical)) else 'false' }},
+    "Content": {{
+      'true' if (result is defined and result and (
+        (result.headings and (
+          (result.headings.h1|default([]))|length > 0 or
+          (result.headings.h2|default([]))|length > 0
+        )) or
+        (result.h1|default([])|length > 0) or
+        (result.h2|default([])|length > 0) or
+        (result.keyword_density_top|default([])|length > 0)
+      )) else 'false'
+    }},
+    "Links": {{ 'true' if (result is defined and result and (
+                (result.internal_links and result.internal_links|length) or
+                (result.external_links and result.external_links|length)
+              )) else 'false' }},
+    "Media": {{ 'true' if (result is defined and result and (result.images_missing_alt is not none)) else 'false' }},
+    "Structured": {{ 'true' if (result is defined and result and (
+                      (result.json_ld|default([])|length) or
+                      (result.microdata|default([])|length) or
+                      (result.rdfa|default([])|length)
+                    )) else 'false' }},
+    "Indexing": {{ 'true' if (result is defined and result and (result.crawl_checks or result.checks)) else 'false' }},
+    "Performance": {{ 'true' if (result is defined and result and result.performance) else 'false' }},
+    "Rendered": {{ 'true' if (result is defined and result and result.rendered_diff and (
+                   (result.rendered_diff.matrix|default([])|length > 0) or
+                   (result.rendered_diff.rendered)
+                 )) else 'false' }},
+  };
 
-function renderChips(state){
-  if (!chipsEl || !pctEl || !fillEl) return;
-  chipsEl.innerHTML = '';
-  let done = 0;
+  // 2) UI helpers
+  const SECTIONS = ["Overview","SEO Meta","Content","Links","Media","Structured","Indexing","Performance","Rendered"];
+  const chipsEl  = document.getElementById('chips');
+  const pctEl    = document.getElementById('pct');
+  const fillEl   = document.getElementById('fill');
+  const engineEl = document.getElementById('engine');
 
-  for (const label of SECTIONS) {
-    const isDone = !!state[label];
-    if (isDone) done++;
-    const span = document.createElement('span');
-    span.className = 'inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ' +
-                     (isDone
-                       ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                       : 'bg-slate-100 text-slate-700 border-slate-200');
-    span.innerHTML = isDone
-      ? '<svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M16.704 5.29a1 1 0 010 1.42l-7.25 7.25a1 1 0 01-1.42 0L3.296 9.57a1 1 0 111.408-1.42l3.04 3.04 6.54-6.54a1 1 0 011.42 0z" clip-rule="evenodd" /></svg>'
-      : '<svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="10" cy="10" r="3"></circle></svg>';
-    span.append(document.createTextNode(' ' + label));
-    chipsEl.append(span);
-  }
+  function renderChips(state){
+    if (!chipsEl || !pctEl || !fillEl) return;
+    chipsEl.innerHTML = '';
+    let done = 0;
 
-  const pct = Math.floor((done * 100) / SECTIONS.length);
-  pctEl.textContent = pct + '%';
-  fillEl.style.width = pct + '%';
-  fillEl.classList.toggle('bg-emerald-500', pct >= 100);
-  fillEl.classList.toggle('bg-blue-600', pct < 100);
-}
+    for (const label of SECTIONS) {
+      const isDone = !!state[label];
+      if (isDone) done++;
 
-function setDone(state, label, value) { state[label] = !!value; renderChips(state); }
-
-/* 3) Animate during submit */
-(function(){
-  const form = document.getElementById('mainAnalyzeForm');
-  if (!form) return;
-  const ORDER = ["Overview","SEO Meta","Content","Links","Media","Structured","Indexing","Performance","Rendered"];
-  const OFFSETS = [200,700,1300,1800,2300,2800,3400,4000,4800];
-  form.addEventListener('submit', () => {
-    const tmp = Object.fromEntries(SECTIONS.map(k => [k,false]));
-    renderChips(tmp);
-    ORDER.forEach((label,i) => setTimeout(() => setDone(tmp,label,true), OFFSETS[i] || (i*600)));
-  }, { passive:true });
-})();
-
-/* 4) On results page, render real state */
-(function(){
-  const hasResult = !!window.__HAS_RESULT__;
-  const state = Object.fromEntries(SECTIONS.map(k => [k,false]));
-  if (hasResult && window.__SECTION_DONE__) {
-    for (const k of SECTIONS) state[k] = !!window.__SECTION_DONE__[k];
-    renderChips(state);
-    if (engineEl && window.__RENDER_ENGINE__) {
-      engineEl.textContent = 'Rendered engine: ' + window.__RENDER_ENGINE__;
-      engineEl.classList.remove('hidden');
+      const span = document.createElement('span');
+      span.className = 'inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ' +
+                       (isDone
+                         ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                         : 'bg-slate-100 text-slate-700 border-slate-200');
+      span.innerHTML = isDone
+        ? '<svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M16.704 5.29a1 1 0 010 1.42l-7.25 7.25a1 1 0 01-1.42 0L3.296 9.57a1 1 0 111.408-1.42l3.04 3.04 6.54-6.54a1 1 0 011.42 0z" clip-rule="evenodd" /></svg>'
+        : '<svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="10" cy="10" r="3"></circle></svg>';
+      span.append(document.createTextNode(' ' + label));
+      chipsEl.append(span);
     }
-  } else {
-    renderChips(state);
+
+    const pct = Math.floor((done * 100) / SECTIONS.length);
+    pctEl.textContent = pct + '%';
+    fillEl.style.width = pct + '%';
+    fillEl.classList.toggle('bg-emerald-500', pct >= 100);
+    fillEl.classList.toggle('bg-blue-600', pct < 100);
   }
-})();
-</script>
 
+  function setDone(state, label, value) { state[label] = !!value; renderChips(state); }
 
-  {% if result and result.is_amp and result.amp_url %}
+  // 3) Animate during submit (cosmetic pre-navigation)
+  (function(){
+    const form = document.getElementById('mainAnalyzeForm');
+    if (!form) return;
+
+    const ORDER = ["Overview","SEO Meta","Content","Links","Media","Structured","Indexing","Performance","Rendered"];
+    const OFFSETS = [200, 700, 1300, 1800, 2300, 2800, 3400, 4000, 4800];
+
+    form.addEventListener('submit', () => {
+      const tmp = Object.fromEntries(SECTIONS.map(k => [k,false]));
+      renderChips(tmp);
+      ORDER.forEach((label, i) => {
+        setTimeout(() => setDone(tmp, label, true), OFFSETS[i] || (i*600));
+      });
+    }, { passive: true });
+  })();
+
+  // 4) On results page, show the real state
+  (function(){
+    const hasResult = !!window.__HAS_RESULT__;
+    const state = Object.fromEntries(SECTIONS.map(k => [k,false]));
+
+    if (hasResult && window.__SECTION_DONE__) {
+      for (const k of SECTIONS) state[k] = !!window.__SECTION_DONE__[k];
+      renderChips(state);
+      if (engineEl && window.__RENDER_ENGINE__) {
+        engineEl.textContent = 'Rendered engine: ' + window.__RENDER_ENGINE__;
+        engineEl.classList.remove('hidden');
+      }
+    } else {
+      renderChips(state);
+    }
+  })();
+  </script>
+
+  {% if (result is defined and result) and result.is_amp and result.amp_url %}
     <!-- AMP Controls -->
     <div class="bg-white border rounded-lg p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div class="flex items-center gap-2 flex-wrap">
@@ -242,7 +253,11 @@ function setDone(state, label, value) { state[label] = !!value; renderChips(stat
         </select>
         <button id="loadVariantBtn" class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md">Load Variant</button>
         <span class="text-slate-500 text-sm">Quick compare:</span>
-        <button id="compareAmpBtn" class="text-sm bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-md">Open AMP & Canonical</button>
+        <a
+          href="{{ request.url_for('amp_compare') }}?url={{ result.url | urlencode }}"
+          target="_blank" rel="noopener"
+          class="text-sm bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-md"
+        >Open AMP & Canonical</a>
       </div>
 
       <!-- Optional prefetch for snappier external loads -->
@@ -265,11 +280,10 @@ function setDone(state, label, value) { state[label] = !!value; renderChips(stat
         const btn = document.getElementById('loadVariantBtn');
         const mainForm = document.getElementById('mainAnalyzeForm');
         const urlInput = document.getElementById('urlInput');
-        const compareBtn = document.getElementById('compareAmpBtn');
-        const ampFormAmp = document.getElementById('ampFormAmp');
-        const ampFormCanonical = document.getElementById('ampFormCanonical');
-        if (btn) btn.addEventListener('click', function(e){ e.preventDefault(); if (urlInput && sel) { urlInput.value = sel.value; mainForm.submit(); }});
-        if (compareBtn) compareBtn.addEventListener('click', function(e){ e.preventDefault(); ampFormCanonical.submit(); ampFormAmp.submit(); });
+        if (btn) btn.addEventListener('click', function(e){
+          e.preventDefault();
+          if (urlInput && sel) { urlInput.value = sel.value; mainForm.submit(); }
+        });
       })();
     </script>
   {% endif %}
@@ -303,7 +317,7 @@ function setDone(state, label, value) { state[label] = !!value; renderChips(stat
     </details>
   {% endmacro %}
 
-  {% if result %}
+  {% if (result is defined and result) %}
     {% set open_graph = result.open_graph if result.open_graph is mapping else {} %}
     {% set twitter = result.twitter_card if result.twitter_card is mapping else {} %}
     {% set headings = result.headings if result.headings is mapping else {
@@ -318,7 +332,6 @@ function setDone(state, label, value) { state[label] = !!value; renderChips(stat
     {% set sitemaps = (result.crawl_checks.sitemaps if result.crawl_checks and result.crawl_checks.sitemaps is iterable else []) %}
     {% set ps_mobile_metrics = (result.pagespeed.mobile.metrics if result.pagespeed and result.pagespeed.mobile and result.pagespeed.mobile.metrics is mapping else {}) %}
     {% set ps_desktop_metrics = (result.pagespeed.desktop.metrics if result.pagespeed and result.pagespeed.desktop and result.pagespeed.desktop.metrics is mapping else {}) %}
-    {% set rendered_matrix = (rendered.matrix if rendered and rendered.matrix is iterable else []) %}
 
     <!-- Topline cards -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -669,6 +682,9 @@ function setDone(state, label, value) { state[label] = !!value; renderChips(stat
 
     <!-- Rendered vs Static Comparison -->
     {% call section('Rendered vs Static Comparison', false) %}
+      {% set rendered = (result.rendered_diff if (result is defined and result and result.rendered_diff) else {}) %}
+      {% set rendered_matrix = (rendered.matrix if rendered and rendered.matrix is iterable else []) %}
+
       {% if rendered_matrix and rendered_matrix|length %}
         {% if rendered.engine %}<div class="mb-2 text-xs text-slate-500">Engine: {{ rendered.engine }}</div>{% endif %}
         <div class="overflow-x-auto">
@@ -693,13 +709,9 @@ function setDone(state, label, value) { state[label] = !!value; renderChips(stat
           Rendered DOM check skipped or failed.
           {% if rendered.error %}<div class="mt-2 text-xs text-red-600">{{ rendered.error }}</div>{% endif %}
           <ul class="list-disc list-inside mt-2 text-xs text-slate-600">
-            <li>Ensure Playwright browsers are installed on the server (<code>python -m playwright install chromium</code>).</li>
+            <li>Ensure Playwright browsers are installed (<code>python -m playwright install chromium</code>).</li>
             <li>Make sure headless Chromium can start (fonts/libc/shared libs).</li>
-            <li>Consider increasing timeouts via env vars:
-              <code>RENDER_WAIT_STATE=networkidle</code>,
-              <code>RENDER_TIMEOUT_MS=30000</code>,
-              <code>RENDER_EXTRA_WAIT_MS=1500</code>.
-            </li>
+            <li>Consider bumping timeouts: <code>RENDER_TIMEOUT_MS</code>, <code>RENDER_EXTRA_WAIT_MS</code>.</li>
           </ul>
         </div>
       {% endif %}
