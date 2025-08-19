@@ -1,14 +1,16 @@
 from __future__ import annotations
+
 import sys
 import asyncio
+import os
 from time import time
 from typing import Dict, Tuple, Any
+from pathlib import Path
 
 from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, HttpUrl
-from pathlib import Path
 
 from .seo import analyze as analyze_url
 from .db import init_db, save_analysis
@@ -21,22 +23,22 @@ if sys.platform.startswith("win"):
         pass
 
 app = FastAPI(title="SEO Analyzer")
-templates = Jinja2Templates(directory="templates")
 
-# Resolve templates dir relative to this file: app/templates
-BASE_DIR = Path(__file__).resolve().parent
-TEMPLATES_DIR = BASE_DIR / "templates"
+# ------------------------------------------------------------------------------
+# Templating: resolve app/templates reliably
+# ------------------------------------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent              # .../app
+TEMPLATES_DIR = BASE_DIR / "templates"                  # .../app/templates
 
-# Optional: allow override via env var if you ever need it
-import os
+# Optional override via env var
 env_templates = os.getenv("TEMPLATES_DIR")
 if env_templates:
     candidate = Path(env_templates).resolve()
     if candidate.exists():
         TEMPLATES_DIR = candidate
 
-# Create the Jinja environment
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
 # ------------------------------------------------------------------------------
 # AMP vs Non-AMP comparison: cache + helpers
 # ------------------------------------------------------------------------------
@@ -44,6 +46,7 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 # key=url, value=(timestamp, payload_dict)
 COMPARE_CACHE: Dict[str, Tuple[float, dict]] = {}
 COMPARE_TTL = 15 * 60  # 15 minutes
+
 
 def _val(d: Any, *path: str, default=None):
     cur = d
@@ -56,8 +59,10 @@ def _val(d: Any, *path: str, default=None):
             return default
     return cur if cur not in (None, "") else default
 
+
 def _yesno(b: Any) -> str:
     return "Yes" if bool(b) else "No"
+
 
 async def build_amp_compare_payload(url: str, request: Request | None):
     """
@@ -175,8 +180,10 @@ async def build_amp_compare_payload(url: str, request: Request | None):
         "error": None,
     }
 
+
 def _cache_put(url: str, payload: dict):
     COMPARE_CACHE[url] = (time(), payload)
+
 
 def _cache_get(url: str) -> dict | None:
     hit = COMPARE_CACHE.get(url)
@@ -186,6 +193,7 @@ def _cache_get(url: str) -> dict | None:
     if time() - ts > COMPARE_TTL:
         return None
     return payload
+
 
 async def _warm_compare_async(url: str):
     """Fire-and-forget pre-scan to warm the compare cache."""
@@ -210,8 +218,12 @@ async def on_startup():
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    # Render the main page (index.html). You can display an initial empty state.
-    return templates.TemplateResponse("index.html", {"request": request})
+    """
+    Render the main page (empty state). Always pass result=None so the template
+    never sees an undefined 'result'.
+    """
+    return templates.TemplateResponse("index.html", {"request": request, "result": None})
+
 
 @app.post("/analyze", response_class=HTMLResponse)
 async def analyze_form(request: Request, url: str = Form(...)):
@@ -236,14 +248,7 @@ async def analyze_form(request: Request, url: str = Form(...)):
         if result.get("amp_url"):
             asyncio.create_task(_warm_compare_async(result["url"]))
 
-        # Optional: add prefetch hints from the template (head block)
-        # See your template addition for:
-        # <link rel="prefetch" href="{{ result.url }}">, etc.
-
-        return templates.TemplateResponse(
-            "index.html",
-            {"request": request, "result": result},
-        )
+        return templates.TemplateResponse("index.html", {"request": request, "result": result})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -253,6 +258,7 @@ async def analyze_form(request: Request, url: str = Form(...)):
 
 class AnalyzeQuery(BaseModel):
     url: HttpUrl
+
 
 @app.get("/api/analyze", response_class=JSONResponse)
 async def api_analyze(url: HttpUrl):
