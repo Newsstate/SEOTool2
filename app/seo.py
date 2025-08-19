@@ -374,6 +374,18 @@ def parse_html(url: str, body: bytes, headers: Dict[str, str], load_ms: int) -> 
         return {"raw": val, "ok": "noindex" not in val}
     checks["x_robots_tag"] = _parse_x_robots(headers)
 
+     # ▼ INSERT HERE — Compression check from response headers
+    enc = (headers.get("content-encoding") or "").lower()
+    _enc_names = {"br": "Brotli", "gzip": "gzip", "deflate": "deflate", "zstd": "zstd"}
+    pretty = None
+    for k, v in _enc_names.items():
+        if k in enc:
+            pretty = v
+            break
+    checks["compression"] = {
+        "ok": bool(pretty),        # True if compression detected
+        "value": pretty or "none", # e.g. "Brotli", "gzip", "none"
+    }
     # Indexable coarse flag
     indexable = (headers.get("status") or "") != "404" and rob["index"]
     checks["indexable"] = {"value": "Yes" if indexable else "No", "ok": indexable}
