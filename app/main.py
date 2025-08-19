@@ -13,9 +13,12 @@ from fastapi import FastAPI, Request, Form, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, HttpUrl
-
+from fastapi.responses import RedirectResponse
+from urllib.parse import quote
 from .seo import analyze as analyze_url
 from .db import init_db, save_analysis
+from fastapi import Query
+
 
 # --- Windows asyncio policy fix (safe no-op elsewhere) ---
 if sys.platform.startswith("win"):
@@ -288,12 +291,14 @@ async def analyze_post(url: str = Form(...)):
 
 # GET does the real work (so refresh/back/bookmark/share all work)
 @app.get("/analyze", response_class=HTMLResponse)
-@app.get("/analyze/", response_class=HTMLResponse)
 @app.get("/analyze/", response_class=HTMLResponse)  # handle trailing slash too
 async def analyze_get(request: Request, url: Optional[str] = Query(None), fast: Optional[int] = Query(None)):
     if not url:
         # No URL provided → just show the page (no errors, no 405)
         return templates.TemplateResponse("index.html", {"request": request, "result": None})
+
+    # ✅ define 'norm' before using it
+    norm = _norm_url(url)
 
     # 2) fast-first strategy (optional via env; override with ?fast=0/1)
     use_fast = ANALYZE_FAST if fast is None else bool(int(fast))
@@ -331,6 +336,7 @@ async def analyze_get(request: Request, url: Optional[str] = Query(None), fast: 
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 # ------------------------------------------------------------------------------
 # API
