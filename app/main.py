@@ -7,7 +7,8 @@ from time import time
 from typing import Dict, Tuple, Any
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit, quote
-
+from typing import Optional
+from urllib.parse import quote
 from fastapi import FastAPI, Request, Form, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -287,12 +288,12 @@ async def analyze_post(url: str = Form(...)):
 
 # GET does the real work (so refresh/back/bookmark/share all work)
 @app.get("/analyze", response_class=HTMLResponse)
-async def analyze_get(request: Request, url: str = Query(...), fast: int | None = Query(None)):
-    norm = _norm_url(url)
-    # 1) cache check
-    cached = _cache_get(RESULTS_CACHE, RESULTS_TTL, norm)
-    if cached:
-        return templates.TemplateResponse("index.html", {"request": request, "result": cached})
+@app.get("/analyze/", response_class=HTMLResponse)
+@app.get("/analyze/", response_class=HTMLResponse)  # handle trailing slash too
+async def analyze_get(request: Request, url: Optional[str] = Query(None), fast: Optional[int] = Query(None)):
+    if not url:
+        # No URL provided → just show the page (no errors, no 405)
+        return templates.TemplateResponse("index.html", {"request": request, "result": None})
 
     # 2) fast-first strategy (optional via env; override with ?fast=0/1)
     use_fast = ANALYZE_FAST if fast is None else bool(int(fast))
