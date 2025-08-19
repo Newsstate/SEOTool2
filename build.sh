@@ -1,11 +1,4 @@
-#!/usr/bin/env bash
-# build.sh
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Force pyppeteer to download Chromium during build
-
- playwright install --with-deps chromium
-pip install playwright
-playwright install chromium
+buildCommand: |
+  pip install -r requirements.txt && \
+  python -m playwright install chromium
+startCommand: gunicorn -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
