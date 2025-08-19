@@ -6,9 +6,10 @@ import os
 from time import time
 from typing import Dict, Tuple, Any
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit, quote
 
-from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request, Form, HTTPException, Query
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, HttpUrl
 
@@ -28,7 +29,7 @@ app = FastAPI(title="SEO Analyzer")
 # Templating: resolve app/templates reliably
 # ------------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent              # .../app
-TEMPLATES_DIR = BASE_DIR / "templates"                  # .../app/templates
+TEMPLATES_DIR = BASE_DIR / "templates"
 
 # Optional override via env var
 env_templates = os.getenv("TEMPLATES_DIR")
@@ -40,13 +41,19 @@ if env_templates:
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 # ------------------------------------------------------------------------------
-# AMP vs Non-AMP comparison: cache + helpers
+# Caches & helpers
 # ------------------------------------------------------------------------------
 
-# key=url, value=(timestamp, payload_dict)
+# Small in-memory cache for full analysis results (speeds repeated scans)
+RESULTS_CACHE: Dict[str, Tuple[float, dict]] = {}
+RESULTS_TTL = int(os.getenv("ANALYSIS_TTL_SEC", "300"))  # default 5 minutes
+
+# AMP compare cache you already had
 COMPARE_CACHE: Dict[str, Tuple[float, dict]] = {}
 COMPARE_TTL = 15 * 60  # 15 minutes
 
+# Fast-path toggle: try static-first, only do rendered if needed
+ANALYZE_FAST = os.getenv("ANALYZE_FAST", "1") not in ("0", "false", "False")
 
 def _val(d: Any, *path: str, default=None):
     cur = d
@@ -59,10 +66,66 @@ def _val(d: Any, *path: str, default=None):
             return default
     return cur if cur not in (None, "") else default
 
-
 def _yesno(b: Any) -> str:
     return "Yes" if bool(b) else "No"
 
+def _norm_url(url: str) -> str:
+    """Normalize URL for caching/redirects (add scheme, lowercase host, strip fragment)."""
+    if not url:
+        return url
+    u = url.strip()
+    if u.startswith("//"):
+        u = "https:" + u
+    elif not u.startswith("http://") and not u.startswith("https://"):
+        u = "https://" + u
+    parts = urlsplit(u)
+    # normalize netloc to lowercase
+    netloc = parts.netloc.lower()
+    # strip fragment
+    return urlunsplit((parts.scheme, netloc, parts.path or "/", parts.query, ""))
+
+def _cache_put(cache: Dict[str, Tuple[float, dict]], ttl: int, key: str, payload: dict):
+    cache[key] = (time(), payload)
+
+def _cache_get(cache: Dict[str, Tuple[float, dict]], ttl: int, key: str) -> dict | None:
+    hit = cache.get(key)
+    if not hit:
+        return None
+    ts, payload = hit
+    if time() - ts > ttl:
+        return None
+    return payload
+
+def _needs_render(static_result: dict) -> bool:
+    """
+    Heuristics to decide if we should do a second pass with rendered DOM.
+    Keep this conservative to save time on static-friendly pages.
+    """
+    if not static_result:
+        return True
+
+    # If SEO core looks empty, we likely need JS rendering
+    h1 = (_val(static_result, "headings", "h1", default=[]) or []) + (static_result.get("h1") or [])
+    h2 = (_val(static_result, "headings", "h2", default=[]) or []) + (static_result.get("h2") or [])
+
+    internal_links = static_result.get("internal_links") or []
+    external_links = static_result.get("external_links") or []
+
+    title = static_result.get("title")
+    description = static_result.get("description")
+    og_present = bool(static_result.get("has_open_graph"))
+    tw_present = bool(static_result.get("has_twitter_card"))
+
+    # If there is at least *some* structure/meta, static is probably enough.
+    # Otherwise, prefer rendered.
+    minimal_structure = (
+        title or description or len(h1) > 0 or len(h2) > 0 or og_present or tw_present
+    )
+
+    # If zero/minimal links plus no headings/meta, it's likely JS-built routing.
+    minimal_links = (len(internal_links) + len(external_links)) < 3
+
+    return not minimal_structure or minimal_links
 
 async def build_amp_compare_payload(url: str, request: Request | None):
     """
@@ -180,26 +243,17 @@ async def build_amp_compare_payload(url: str, request: Request | None):
         "error": None,
     }
 
+def _compare_cache_put(url: str, payload: dict):
+    _cache_put(COMPARE_CACHE, COMPARE_TTL, url, payload)
 
-def _cache_put(url: str, payload: dict):
-    COMPARE_CACHE[url] = (time(), payload)
-
-
-def _cache_get(url: str) -> dict | None:
-    hit = COMPARE_CACHE.get(url)
-    if not hit:
-        return None
-    ts, payload = hit
-    if time() - ts > COMPARE_TTL:
-        return None
-    return payload
-
+def _compare_cache_get(url: str) -> dict | None:
+    return _cache_get(COMPARE_CACHE, COMPARE_TTL, url)
 
 async def _warm_compare_async(url: str):
     """Fire-and-forget pre-scan to warm the compare cache."""
     try:
         payload = await build_amp_compare_payload(url, request=None)
-        _cache_put(url, payload)
+        _compare_cache_put(url, payload)
     except Exception:
         # Best effort; don't crash the request path
         pass
@@ -224,19 +278,41 @@ async def home(request: Request):
     """
     return templates.TemplateResponse("index.html", {"request": request, "result": None})
 
+# --- NEW: PRG pattern ---
+# POST only redirects to GET /analyze?url=...
+@app.post("/analyze")
+async def analyze_post(url: str = Form(...)):
+    norm = _norm_url(url)
+    return RedirectResponse(url=f"/analyze?url={quote(norm)}", status_code=303)
 
-@app.post("/analyze", response_class=HTMLResponse)
-async def analyze_form(request: Request, url: str = Form(...)):
-    """
-    Handles the form submit from the homepage, renders the results page.
-    Kicks off a background pre-scan for AMP vs Non-AMP if an AMP URL exists.
-    """
+# GET does the real work (so refresh/back/bookmark/share all work)
+@app.get("/analyze", response_class=HTMLResponse)
+async def analyze_get(request: Request, url: str = Query(...), fast: int | None = Query(None)):
+    norm = _norm_url(url)
+    # 1) cache check
+    cached = _cache_get(RESULTS_CACHE, RESULTS_TTL, norm)
+    if cached:
+        return templates.TemplateResponse("index.html", {"request": request, "result": cached})
+
+    # 2) fast-first strategy (optional via env; override with ?fast=0/1)
+    use_fast = ANALYZE_FAST if fast is None else bool(int(fast))
+
     try:
-        result = await analyze_url(url, do_rendered_check=True)
+        if use_fast:
+            # static-only pass
+            base = await analyze_url(norm, do_rendered_check=False)
+            # decide if rendered is likely needed
+            if _needs_render(base):
+                result = await analyze_url(norm, do_rendered_check=True)
+            else:
+                result = base
+        else:
+            # full (includes rendered)
+            result = await analyze_url(norm, do_rendered_check=True)
 
-        # Persist to DB (safe defaults)
+        # 3) persist to DB
         save_analysis(
-            url=url,
+            url=norm,
             result=result,
             status_code=int(result.get("status_code") or 0),
             load_time_ms=int(result.get("load_time_ms") or 0),
@@ -244,11 +320,14 @@ async def analyze_form(request: Request, url: str = Form(...)):
             is_amp=bool(result.get("is_amp")),
         )
 
-        # Pre-warm compare cache so the button feels instant
+        # 4) warm AMP compare (best effort)
         if result.get("amp_url"):
             asyncio.create_task(_warm_compare_async(result["url"]))
 
+        # 5) cache & render
+        _cache_put(RESULTS_CACHE, RESULTS_TTL, norm, result)
         return templates.TemplateResponse("index.html", {"request": request, "result": result})
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -259,17 +338,30 @@ async def analyze_form(request: Request, url: str = Form(...)):
 class AnalyzeQuery(BaseModel):
     url: HttpUrl
 
-
 @app.get("/api/analyze", response_class=JSONResponse)
-async def api_analyze(url: HttpUrl):
+async def api_analyze(url: HttpUrl, fast: int | None = Query(None)):
     """
-    JSON API variant. Also pre-warms compare cache when AMP is present.
+    JSON API variant. Respects the fast-first strategy (override with ?fast=0/1).
     """
+    norm = _norm_url(str(url))
+    cached = _cache_get(RESULTS_CACHE, RESULTS_TTL, norm)
+    if cached:
+        return JSONResponse(cached)
+
+    use_fast = ANALYZE_FAST if fast is None else bool(int(fast))
+
     try:
-        result = await analyze_url(str(url), do_rendered_check=True)
+        if use_fast:
+            base = await analyze_url(norm, do_rendered_check=False)
+            if _needs_render(base):
+                result = await analyze_url(norm, do_rendered_check=True)
+            else:
+                result = base
+        else:
+            result = await analyze_url(norm, do_rendered_check=True)
 
         save_analysis(
-            url=str(url),
+            url=norm,
             result=result,
             status_code=int(result.get("status_code") or 0),
             load_time_ms=int(result.get("load_time_ms") or 0),
@@ -280,6 +372,7 @@ async def api_analyze(url: HttpUrl):
         if result.get("amp_url"):
             asyncio.create_task(_warm_compare_async(result["url"]))
 
+        _cache_put(RESULTS_CACHE, RESULTS_TTL, norm, result)
         return JSONResponse(result)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -296,7 +389,7 @@ async def amp_compare(request: Request, url: str):
     Uses a warm cache for instant load when possible.
     """
     # 1) Try cache
-    cached = _cache_get(url)
+    cached = _compare_cache_get(url)
     if cached:
         payload = dict(cached)  # shallow copy
         payload["request"] = request
@@ -304,5 +397,5 @@ async def amp_compare(request: Request, url: str):
 
     # 2) Compute fresh and cache
     payload = await build_amp_compare_payload(url, request)
-    _cache_put(url, dict(payload, request=None))  # store without Request object
+    _compare_cache_put(url, dict(payload, request=None))  # store without Request object
     return templates.TemplateResponse("amp_compare.html", payload)
