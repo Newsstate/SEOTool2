@@ -5,6 +5,7 @@ import os
 import re
 import json
 import time
+import inspect
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlsplit
 
@@ -26,6 +27,7 @@ UA_DEFAULT = os.getenv(
 # Shorter timeouts in FAST mode
 DEFAULT_TIMEOUT = float(os.getenv("HTTP_TIMEOUT_SEC", "12" if FAST_SCAN else "25"))
 
+# One optional, global proxy (applied site-agnostically)
 PROXY_DEFAULT = os.getenv("PROXY_DEFAULT")  # e.g., http://user:pass@proxy:8080
 
 # PSI (optional; skipped in FAST mode)
@@ -84,9 +86,33 @@ def build_headers_for(url: str) -> Dict[str, str]:
         "Accept-Encoding": "gzip, deflate, br",
     }
 
+# -----------------------------
+# httpx cross-version proxy shim
+# -----------------------------
+def _client_kwargs(base_kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Make AsyncClient kwargs compatible across httpx versions:
+    - If constructor supports 'proxies', use it (dict or str).
+    - Else if supports 'proxy', use it (str).
+    - Else, fall back to env vars (HTTP_PROXY/HTTPS_PROXY).
+    """
+    if not PROXY_DEFAULT:
+        return base_kwargs
 
-def _httpx_proxies_global():
-    return {"all": PROXY_DEFAULT} if PROXY_DEFAULT else None
+    params = inspect.signature(httpx.AsyncClient.__init__).parameters
+    # Prefer 'proxies' if available (many versions accept it)
+    if "proxies" in params:
+        base_kwargs["proxies"] = {"all": PROXY_DEFAULT}
+        return base_kwargs
+    # Otherwise try 'proxy' (newer/other builds)
+    if "proxy" in params:
+        base_kwargs["proxy"] = PROXY_DEFAULT
+        return base_kwargs
+
+    # Last resort: environment fallback
+    os.environ.setdefault("HTTP_PROXY", PROXY_DEFAULT)
+    os.environ.setdefault("HTTPS_PROXY", PROXY_DEFAULT)
+    return base_kwargs
 
 
 # ============
@@ -95,16 +121,15 @@ def _httpx_proxies_global():
 
 async def fetch(url: str, timeout: float = DEFAULT_TIMEOUT) -> Tuple[int, bytes, Dict[str, str], Dict[str, Any]]:
     headers = build_headers_for(url)
-    proxies = _httpx_proxies_global()
     limits = httpx.Limits(max_keepalive_connections=4, max_connections=6)
-    async with httpx.AsyncClient(
-        follow_redirects=True,
-        headers=headers,
-        timeout=timeout,
-        trust_env=True,
-        proxies=proxies,
-        limits=limits,
-    ) as client:
+    kwargs = _client_kwargs({
+        "follow_redirects": True,
+        "headers": headers,
+        "timeout": timeout,
+        "trust_env": True,
+        "limits": limits,
+    })
+    async with httpx.AsyncClient(**kwargs) as client:
         start = time.perf_counter()
         resp = await client.get(url)
         end = time.perf_counter()
@@ -443,8 +468,11 @@ async def robots_and_sitemaps(url: str) -> Dict[str, Any]:
     try:
         p = urlsplit(url)
         robots_url = f"{p.scheme}://{p.netloc}/robots.txt"
-        proxies = _httpx_proxies_global()
-        async with httpx.AsyncClient(follow_redirects=True, timeout=6 if FAST_SCAN else 10, proxies=proxies) as client:
+        kwargs = _client_kwargs({
+            "follow_redirects": True,
+            "timeout": 6 if FAST_SCAN else 10,
+        })
+        async with httpx.AsyncClient(**kwargs) as client:
             r = await client.get(robots_url)
             txt = r.text if r.status_code < 500 else ""
     except Exception:
@@ -489,10 +517,14 @@ async def _check_urls(urls: List[str], limit: int) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     if not sample:
         return out
-    proxies = _httpx_proxies_global()
-    limits = httpx.Limits(max_keepalive_connections=4, max_connections=6)
     timeout = httpx.Timeout(5.0 if FAST_SCAN else 10.0)
-    async with httpx.AsyncClient(follow_redirects=True, timeout=timeout, trust_env=True, proxies=proxies, limits=limits) as client:
+    kwargs = _client_kwargs({
+        "follow_redirects": True,
+        "timeout": timeout,
+        "trust_env": True,
+        "limits": httpx.Limits(max_keepalive_connections=4, max_connections=6),
+    })
+    async with httpx.AsyncClient(**kwargs) as client:
         for u in sample:
             try:
                 r = await client.head(u)
