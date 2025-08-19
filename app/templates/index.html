@@ -107,149 +107,129 @@
   {% endif %}
 
   {# === Section Completion Progress (sticky top bar) === #}
-  {% set rendered = result.rendered_diff if result and result.rendered_diff else {} %}
-  {% set headings_for_progress = (result.headings if result and result.headings is mapping else {
-    'h1': (result.h1 or []), 'h2': (result.h2 or []), 'h3': (result.h3 or []),
-    'h4': (result.h4 or []), 'h5': (result.h5 or []), 'h6': (result.h6 or [])
-  }) %}
-  {% set kd_for_progress = (result.keyword_density_top if result and result.keyword_density_top is iterable and result.keyword_density_top is not string else []) %}
-
-  <div class="sticky top-0 z-40 bg-white/80 backdrop-blur border-b">
-    <div class="max-w-7xl mx-auto px-6 py-3">
-      <div class="flex items-center justify-between gap-3">
-        <div class="text-sm text-slate-600">
-          Scan progress: <span class="font-semibold" id="pct">0%</span>
-        </div>
-        <div id="engine" class="text-xs text-slate-500 hidden"></div>
+<div class="sticky top-0 z-40 bg-white/80 backdrop-blur border-b">
+  <div class="max-w-7xl mx-auto px-6 py-3">
+    <div class="flex items-center justify-between gap-3">
+      <div class="text-sm text-slate-600">
+        Scan progress: <span class="font-semibold" id="pct">0%</span>
       </div>
-
-      <div class="mt-2 h-2 rounded-full bg-slate-200 overflow-hidden">
-        <div id="fill" class="h-full bg-blue-600 transition-all duration-700" style="width:0%;"></div>
-      </div>
-
-      <div id="chips" class="mt-2 flex flex-wrap gap-2"></div>
+      <div id="engine" class="text-xs text-slate-500 hidden"></div>
     </div>
+
+    <div class="mt-2 h-2 rounded-full bg-slate-200 overflow-hidden">
+      <div id="fill" class="h-full bg-blue-600 transition-all duration-700" style="width:0%;"></div>
+    </div>
+
+    <div id="chips" class="mt-2 flex flex-wrap gap-2"></div>
   </div>
+</div>
 
-  <!-- Auto-progress script: lights chips during submit, shows real state on results -->
-  <script>
-  /**
-   * Auto-progress for section chips during submit,
-   * and real completion once results are rendered.
-   */
+<script>
+/* 1) Real completion (results page) via Jinja -> JS (all guarded) */
+window.__HAS_RESULT__ = {{ 'true' if (result is defined and result) else 'false' }};
 
-  // 1) Real completion (results page) via Jinja -> JS
-  window.__HAS_RESULT__ = {{ 'true' if result else 'false' }};
-  window.__RENDER_ENGINE__ = {{ ( '"' ~ (rendered.engine) ~ '"' ) if (rendered and rendered.engine) else 'null' }};
+window.__RENDER_ENGINE__ = {% if (result is defined and result and result.rendered_diff and result.rendered_diff.engine) %}
+  "{{ result.rendered_diff.engine }}"
+{% else %} null {% endif %};
 
-  window.__SECTION_DONE__ = {
-    "Overview": {{ 'true' if result else 'false' }},
-    "SEO Meta": {{ 'true' if result and (result.title or result.description or result.canonical) else 'false' }},
-    "Content": {{
-      'true' if (
-        result and (
-          (result.headings and (
-            (result.headings.h1 is iterable and result.headings.h1|length > 0) or
-            (result.headings.h2 is iterable and result.headings.h2|length > 0)
-          )) or
-          (result.h1 is iterable and result.h1|length > 0) or
-          (result.h2 is iterable and result.h2|length > 0) or
-          (result.keyword_density_top is iterable and result.keyword_density_top|length > 0)
-        )
-      ) else 'false'
-    }},
-    "Links": {{ 'true' if result and (
-                  (result.internal_links and result.internal_links|length) or
-                  (result.external_links and result.external_links|length)
-               ) else 'false' }},
-    "Media": {{ 'true' if result and (result.images_missing_alt is not none) else 'false' }},
-    "Structured": {{ 'true' if result and (
-                      (result.json_ld and result.json_ld|length) or
-                      (result.microdata and result.microdata|length) or
-                      (result.rdfa and result.rdfa|length)
-                   ) else 'false' }},
-    "Indexing": {{ 'true' if result and (result.crawl_checks or result.checks) else 'false' }},
-    "Performance": {{ 'true' if result and result.performance else 'false' }},
-    "Rendered": {{ 'true' if result and result.rendered_diff and (
-                     (result.rendered_diff.matrix and result.rendered_diff.matrix|length > 0) or
-                     (result.rendered_diff.rendered)
-                   ) else 'false' }},
-  };
+window.__SECTION_DONE__ = {
+  "Overview": {{ 'true' if (result is defined and result) else 'false' }},
+  "SEO Meta": {{ 'true' if (result is defined and result and (result.title or result.description or result.canonical)) else 'false' }},
+  "Content": {{
+    'true' if (result is defined and result and (
+      (result.headings and (
+        (result.headings.h1|default([]))|length > 0 or
+        (result.headings.h2|default([]))|length > 0
+      )) or
+      (result.h1|default([])|length > 0) or
+      (result.h2|default([])|length > 0) or
+      (result.keyword_density_top|default([])|length > 0)
+    )) else 'false'
+  }},
+  "Links": {{ 'true' if (result is defined and result and (
+              (result.internal_links and result.internal_links|length) or
+              (result.external_links and result.external_links|length)
+            )) else 'false' }},
+  "Media": {{ 'true' if (result is defined and result and (result.images_missing_alt is not none)) else 'false' }},
+  "Structured": {{ 'true' if (result is defined and result and (
+                    (result.json_ld|default([])|length) or
+                    (result.microdata|default([])|length) or
+                    (result.rdfa|default([])|length)
+                  )) else 'false' }},
+  "Indexing": {{ 'true' if (result is defined and result and (result.crawl_checks or result.checks)) else 'false' }},
+  "Performance": {{ 'true' if (result is defined and result and result.performance) else 'false' }},
+  "Rendered": {{ 'true' if (result is defined and result and result.rendered_diff and (
+                 (result.rendered_diff.matrix|default([])|length > 0) or
+                 (result.rendered_diff.rendered)
+               )) else 'false' }},
+};
 
-  // 2) UI helpers
-  const SECTIONS = ["Overview","SEO Meta","Content","Links","Media","Structured","Indexing","Performance","Rendered"];
-  const chipsEl  = document.getElementById('chips');
-  const pctEl    = document.getElementById('pct');
-  const fillEl   = document.getElementById('fill');
-  const engineEl = document.getElementById('engine');
+/* 2) UI helpers (unchanged) */
+const SECTIONS = ["Overview","SEO Meta","Content","Links","Media","Structured","Indexing","Performance","Rendered"];
+const chipsEl  = document.getElementById('chips');
+const pctEl    = document.getElementById('pct');
+const fillEl   = document.getElementById('fill');
+const engineEl = document.getElementById('engine');
 
-  function renderChips(state){
-    if (!chipsEl || !pctEl || !fillEl) return;
-    chipsEl.innerHTML = '';
-    let done = 0;
+function renderChips(state){
+  if (!chipsEl || !pctEl || !fillEl) return;
+  chipsEl.innerHTML = '';
+  let done = 0;
 
-    for (const label of SECTIONS) {
-      const isDone = !!state[label];
-      if (isDone) done++;
-
-      const span = document.createElement('span');
-      span.className = 'inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ' +
-                       (isDone
-                         ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                         : 'bg-slate-100 text-slate-700 border-slate-200');
-      span.innerHTML = isDone
-        ? '<svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M16.704 5.29a1 1 0 010 1.42l-7.25 7.25a1 1 0 01-1.42 0L3.296 9.57a1 1 0 111.408-1.42l3.04 3.04 6.54-6.54a1 1 0 011.42 0z" clip-rule="evenodd" /></svg>'
-        : '<svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="10" cy="10" r="3"></circle></svg>';
-      span.append(document.createTextNode(' ' + label));
-      chipsEl.append(span);
-    }
-
-    const pct = Math.floor((done * 100) / SECTIONS.length);
-    pctEl.textContent = pct + '%';
-    fillEl.style.width = pct + '%';
-    fillEl.classList.toggle('bg-emerald-500', pct >= 100);
-    fillEl.classList.toggle('bg-blue-600', pct < 100);
+  for (const label of SECTIONS) {
+    const isDone = !!state[label];
+    if (isDone) done++;
+    const span = document.createElement('span');
+    span.className = 'inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ' +
+                     (isDone
+                       ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                       : 'bg-slate-100 text-slate-700 border-slate-200');
+    span.innerHTML = isDone
+      ? '<svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M16.704 5.29a1 1 0 010 1.42l-7.25 7.25a1 1 0 01-1.42 0L3.296 9.57a1 1 0 111.408-1.42l3.04 3.04 6.54-6.54a1 1 0 011.42 0z" clip-rule="evenodd" /></svg>'
+      : '<svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="10" cy="10" r="3"></circle></svg>';
+    span.append(document.createTextNode(' ' + label));
+    chipsEl.append(span);
   }
 
-  function setDone(state, label, value) {
-    state[label] = !!value;
+  const pct = Math.floor((done * 100) / SECTIONS.length);
+  pctEl.textContent = pct + '%';
+  fillEl.style.width = pct + '%';
+  fillEl.classList.toggle('bg-emerald-500', pct >= 100);
+  fillEl.classList.toggle('bg-blue-600', pct < 100);
+}
+
+function setDone(state, label, value) { state[label] = !!value; renderChips(state); }
+
+/* 3) Animate during submit */
+(function(){
+  const form = document.getElementById('mainAnalyzeForm');
+  if (!form) return;
+  const ORDER = ["Overview","SEO Meta","Content","Links","Media","Structured","Indexing","Performance","Rendered"];
+  const OFFSETS = [200,700,1300,1800,2300,2800,3400,4000,4800];
+  form.addEventListener('submit', () => {
+    const tmp = Object.fromEntries(SECTIONS.map(k => [k,false]));
+    renderChips(tmp);
+    ORDER.forEach((label,i) => setTimeout(() => setDone(tmp,label,true), OFFSETS[i] || (i*600)));
+  }, { passive:true });
+})();
+
+/* 4) On results page, render real state */
+(function(){
+  const hasResult = !!window.__HAS_RESULT__;
+  const state = Object.fromEntries(SECTIONS.map(k => [k,false]));
+  if (hasResult && window.__SECTION_DONE__) {
+    for (const k of SECTIONS) state[k] = !!window.__SECTION_DONE__[k];
+    renderChips(state);
+    if (engineEl && window.__RENDER_ENGINE__) {
+      engineEl.textContent = 'Rendered engine: ' + window.__RENDER_ENGINE__;
+      engineEl.classList.remove('hidden');
+    }
+  } else {
     renderChips(state);
   }
+})();
+</script>
 
-  // 3) Animate during submit (cosmetic pre-navigation)
-  (function setupAutoProgressDuringSubmit(){
-    const form = document.getElementById('mainAnalyzeForm');
-    if (!form) return;
-
-    const ORDER = ["Overview","SEO Meta","Content","Links","Media","Structured","Indexing","Performance","Rendered"];
-    const OFFSETS = [200, 700, 1300, 1800, 2300, 2800, 3400, 4000, 4800];
-
-    form.addEventListener('submit', () => {
-      const tmp = Object.fromEntries(SECTIONS.map(k => [k,false]));
-      renderChips(tmp);
-      ORDER.forEach((label, i) => {
-        setTimeout(() => setDone(tmp, label, true), OFFSETS[i] || (i*600));
-      });
-    }, { passive: true });
-  })();
-
-  // 4) On results page, show the real state
-  (function initFromResult(){
-    const hasResult = !!window.__HAS_RESULT__;
-    const state = Object.fromEntries(SECTIONS.map(k => [k,false]));
-
-    if (hasResult && window.__SECTION_DONE__) {
-      for (const k of SECTIONS) state[k] = !!window.__SECTION_DONE__[k];
-      renderChips(state);
-      if (engineEl && window.__RENDER_ENGINE__) {
-        engineEl.textContent = 'Rendered engine: ' + window.__RENDER_ENGINE__;
-        engineEl.classList.remove('hidden');
-      }
-    } else {
-      renderChips(state);
-    }
-  })();
-  </script>
 
   {% if result and result.is_amp and result.amp_url %}
     <!-- AMP Controls -->
